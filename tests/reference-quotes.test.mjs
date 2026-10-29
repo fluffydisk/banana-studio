@@ -77,3 +77,59 @@ test('image intent analysis does not discard instructions between possessives', 
   assert.equal(isYouTubeThumbnailPrompt(`${possessive} YouTube thumbnail; ${possessive} portresi.`, []), true);
   assert.equal(isYouTubeThumbnailPrompt("Print 'YouTube thumbnail' on a plain poster.", []), false);
 });
+
+test('word-internal apostrophes stay literal inside genuine single quotes', () => {
+  for (const word of ["don't", "John's", possessive, "李'的", "e\u0301's", "𐐀'ı", "١'ı"]) {
+    const literal = `'${word} @REF_IMAGE_1'`;
+    assert.equal(bindImageReferences(`${literal}; @REF_IMAGE_2`, refs), `${literal}; @REFERENCE[b]`, word);
+    const missing = `'${word} @PERSON_9 @REF_IMAGE_9 @REFERENCE[missing]'`;
+    assert.equal(normalizeReferencePrompt(missing, []), missing, word);
+    assert.equal(resolveStableImageReferences(missing, []), missing, word);
+    assert.equal(mergePersonReferenceInputs([], [], '', missing).prompt, missing, word);
+  }
+});
+
+test('editable prompts and display aliases preserve quoted apostrophes', () => {
+  const people = [{ ...refs[0], personId: 1 }];
+  const expanded = 'the main person shown in image 1 (all these photos show the SAME single person)';
+  const text = `'don't change ${expanded}; image 2; @REF_IMAGE_1'`;
+  assert.equal(prepareEditableImagePrompt(text, people), text);
+  const stable = "'don't change @REFERENCE[a]'";
+  assert.equal(displayReferencePrompt(stable, refs), stable);
+  assert.equal(storeReferencePrompt("'don't change @[Reference 1]'", refs), "'don't change @[Reference 1]'");
+});
+
+test('frame tags and image intent remain literal inside quotes containing apostrophes', () => {
+  const frames = [{ ...refs[0], isFirstFrame: true }];
+  for (const [open, close] of [["'", "'"], ['"', '"'], ['“', '”']]) {
+    const text = `${open}don't change @FIRST_FRAME @PERSON_9 @REF_IMAGE_9${close}`;
+    assert.equal(normalizeSeedanceFrameTags(text, frames), text);
+    assert.equal(normalizeReferencePrompt(text, []), text);
+    assert.equal(isYouTubeThumbnailPrompt(`Print ${open}don't show a YouTube thumbnail${close} on a plain poster.`, []), false);
+  }
+});
+
+test('single-quote endings beside Unicode words keep the existing boundary rule', () => {
+  // A suffixed single-quoted token is ambiguous. Keep the PR's lexical rule;
+  // double or curly-double quotes provide unambiguous literal copy instead.
+  for (const suffix of ['ın', 'я', '\u0301', '١', '_x']) {
+    assert.equal(bindImageReferences(`'@REF_IMAGE_1'${suffix} aynen yaz`, refs), `'@REFERENCE[a]'${suffix} aynen yaz`);
+    assert.equal(bindImageReferences(`"@REF_IMAGE_1"${suffix} aynen yaz`, refs), `"@REF_IMAGE_1"${suffix} aynen yaz`);
+    assert.equal(bindImageReferences(`“@REF_IMAGE_1”${suffix} aynen yaz`, refs), `“@REF_IMAGE_1”${suffix} aynen yaz`);
+  }
+  // Relaxing the closing boundary would mistake the possessive for a closer.
+  assert.equal(bindImageReferences("'hi, Barış'ın @REF_IMAGE_1", refs), "'hi, Barış'ın @REFERENCE[a]");
+});
+
+test('unmatched and multiline quotes do not hide reference validation', () => {
+  for (const text of ["'don't show @PERSON_9", "'don't\nshow @PERSON_9'", '"show @PERSON_9', '“show @PERSON_9']) {
+    assert.throws(() => normalizeReferencePrompt(text, []), /kişi referansı yok/, text);
+  }
+  assert.equal(bindImageReferences("'don't\nshow @REF_IMAGE_1'", refs), "'don't\nshow @REFERENCE[a]'");
+});
+
+test('long quoted and unmatched text with many apostrophes keeps references consistent', () => {
+  const words = `${possessive} `.repeat(10_000);
+  assert.ok(bindImageReferences(`'${words}@REF_IMAGE_1' @REF_IMAGE_2`, refs) === `'${words}@REF_IMAGE_1' @REFERENCE[b]`, 'closed quote stays literal');
+  assert.ok(bindImageReferences(`'${words}@REF_IMAGE_1`, refs) === `'${words}@REFERENCE[a]`, 'unmatched quote does not hide a reference');
+});

@@ -2,7 +2,8 @@ import type { ReferenceImage } from '../../types.js';
 
 // Apostrophes within Unicode words are not quotation delimiters. Return a
 // fresh pattern so callers never share the state of a global RegExp.
-export const getQuotedPromptPattern = (): RegExp => /"[^"\n]*"|“[^”\n]*”|(?<![\p{L}\p{M}\p{N}_])'[^'\n]*'(?![\p{L}\p{M}\p{N}_])/gu;
+// The single-quoted body also accepts those word-internal apostrophes.
+export const getQuotedPromptPattern = (): RegExp => /"[^"\n]*"|“[^”\n]*”|(?<![\p{L}\p{M}\p{N}_])'(?:[^'\n]|(?<=[\p{L}\p{M}\p{N}_])'(?=[\p{L}\p{M}\p{N}_]))*'(?![\p{L}\p{M}\p{N}_])/gu;
 
 // Quoted visible copy is literal, even when it looks like a reference.
 export const mapUnquotedPrompt = (prompt: string, map: (text: string) => string): string => {
